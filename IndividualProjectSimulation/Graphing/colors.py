@@ -1,0 +1,15 @@
+colors = ['firebrick',
+          'orangered',
+          'sandybrown',
+          'gold',
+          'yellowgreen',
+          'lightgreen',
+          'mediumspringgreen',
+          'turquoise',
+          'darkturquoise',
+          'deepskyblue',
+          'mediumslateblue',
+          'blueviolet',
+          'violet',
+          'hotpink'
+          ]
