@@ -1,28 +1,31 @@
-from os.path import exists
+import mysql.connector
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from sqlalchemy import create_engine
+from Environment import dataExport, db
 from Graphing.colors import colors
 
-def graph(file_name):
-    if exists ('Data/' + file_name):
+def graph(ticker):
+    if ticker in dataExport.tickers:
         # Create data frame for CSV file
-        df = pd.read_csv('Data/' + file_name)
-        headers = df.columns.values.tolist()
-        stdev = []
+        try:
+            # Read data for stock from database
+            conn = create_engine(db.conn_str)
+            df = pd.read_sql('SELECT * FROM ' + ticker, con=conn, index_col='Day')
+            conn.close()
 
-        # Iterate through columns and plot each onto graph
-        for i in range(headers.__len__() - 1):
-            # Exclude 'Day' column of CSV file
-            column_name = str(headers[i + 1])
-            std = float(df[headers[i + 1]].std())
-            plt.plot(df['Day'], df[column_name], color=colors[i], label=column_name)
-            stdev += (column_name, round(std, 6))
-        plt.xlabel('Day')
-        plt.ylabel('Stock Price ($)')
-        plt.title('Stock Price During Simulation Scenario')
-        plt.grid(True)
-        plt.show()
-        print (stdev)
+            # Plot closing price of stock
+            headers = df.columns.values.tolist()
+            column_name = str(headers[4]) # Closing price column
+            plt.plot(df['Date'], df[column_name], color=darkturquoise, label=column_name)
+            plt.xlabel('Date')
+            plt.ylabel('Stock Closing Price ($)')
+            plt.title('Stock Price During Simulation Scenario')
+            plt.grid(True)
+            plt.show()
+        except Exception as e:
+            print('Error importing data: ' + e)
     else:
-        print('File not found, please check your spelling and capitalisation')
+        print('Invalid ticker entered')
+        print('List of valid tickers: ' + dataExport.tickers)
