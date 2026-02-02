@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from sqlalchemy import create_engine
-from Environment import dataExport, db
+from Database import dataManip, db
 from Graphing.colors import colors
 
 def graph(ticker):
