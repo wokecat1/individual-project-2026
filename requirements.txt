@@ -1,7 +1,8 @@
-typer==0.3.2
-colorama==0.4.4
-shellingham==1.4.0
-pytest==6.2.4
-pandas
-pandas_datareader.data
-sqlalchemy
+mysql~=0.0.3
+mysql-connector-python~=9.5.0
+mysqlclient~=2.2.7
+pandas~=3.0.0
+sqlalchemy~=2.0.46
+numpy~=2.4.2
+matplotlib~=3.10.8
+backtrader~=1.9.78.123

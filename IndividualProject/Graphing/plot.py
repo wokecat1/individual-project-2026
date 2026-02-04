@@ -1,7 +1,7 @@
 from __future__ import division
 import numpy as np
 
-from pylab import plot, ylim, xlim, show, xlabel, ylabel, grid, title
+from matplotlib.pylab import plot, ylim, xlim, show, xlabel, ylabel, grid, title
 from Database import db
 
 def moving_average(interval, window_size):

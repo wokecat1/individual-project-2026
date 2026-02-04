@@ -15,7 +15,9 @@ conn_str = 'mysql+mysqlconnector://' + username + ':' + password + '@' + hostnam
 # List of tickers which have data stored in database
 tickers = ['AAOI', 'BTDR', 'ENR', 'IMAX', 'JACK',
             'MAPS', 'NTGR', 'PLSE', 'SAFX', 'SCHL',
-            'STRL', 'SWX', 'TSE', 'TVGN', 'USAU', 'WDFC']
+            'STRL', 'SWX']
+
+pennytickers = ['TSE', 'TVGN', 'USAU', 'WDFC']
 
 # List of historical scenario start and end dates
 scenarios = [("2025-07-29", "2026-01-28"),
@@ -60,9 +62,10 @@ def import_data(v):
                     # Read SQL into DataFrame using start and end dates as parameters, then add to frames array
                     df = pd.read_sql(query, conn, params={"start": start_date, "end": end_date})
                     df['Date'] = pd.to_datetime(df['Date'])
-                    df = df.set_index('Date', verify_integrity=True)
+                    df = df.set_index('Date')
                     frames.append(df)
-                    return SUCCESS
+                    if len(frames) == len(tickers):
+                        return SUCCESS
 
         except MySQLdb.Error:
             print("Can't connect to database")
