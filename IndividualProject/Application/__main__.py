@@ -21,21 +21,22 @@ class AppPrompt(Cmd):
 """Select algorithm to run.
     1 - Simple SMA
     2 - SMA Crossover
-    3 - 
-    4 - 
-    5 - """
+    3 - MACD
+    4 - RSI
+    5 - Bollinger Bands
+    6 - Volume Oscillator Divergence"""
                   )
         num2 = int(input('Enter simulation number: '))
-        if num2 in range(1, 5):
+        if num2 in range(1, 10):
             print("Do you want to run the simulation on all stocks? (y/n)")
             com = input('Enter choice: ')
             if com == 'y':
-                algs.runall(db.frames)
+                algs.runall(db.frames, num2)
             elif com == 'n':
                 print("Enter stock to run simulation on.")
                 com2 = input('Enter choice: ')
                 if com2 in db.tickers:
-                    algs.runone(com2)
+                    algs.runone(com2, num2)
                 else:
                     print("Stock not found, please select a valid stock ticker.")
         else:
