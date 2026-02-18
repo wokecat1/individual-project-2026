@@ -21,10 +21,11 @@ class AppPrompt(Cmd):
 """Select algorithm to run.
     1 - Simple SMA
     2 - SMA Crossover
-    3 - MACD
-    4 - RSI
-    5 - Bollinger Bands
-    6 - Volume Oscillator Divergence"""
+    3 - Adaptive MAC
+    4 - MACD
+    5 - RSI
+    6 - Bollinger Bands
+    7 - Volume Oscillator Divergence"""
                   )
         num2 = int(input('Enter simulation number: '))
         if num2 in range(1, 10):
