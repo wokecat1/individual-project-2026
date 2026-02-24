@@ -8,21 +8,6 @@ from Database import db
 
 start_cash = 10000
 
-class SimpleSMA(bt.SignalStrategy):
-    def __init__(self):
-        self.inds = {}
-        for i, d in enumerate(self.datas):
-            sma = bt.ind.MovingAverageSimple(d.close, period=15)
-            self.inds[d] = bt.ind.CrossOver(d.close, sma)
-
-    def next(self):
-        for i, d in enumerate(self.datas):
-            if self.inds[d] > 0.0:  # cross upwards
-                self.buy(data=d)
-
-            elif self.inds[d] < 0.0:
-                self.close(data=d)
-
 class SMACrossover(bt.SignalStrategy):
 
     """Simpler trading strategy which uses the crossover of a slower and a faster SMA as an indicator"""
@@ -67,14 +52,6 @@ class SMACrossover(bt.SignalStrategy):
             sma_slow_slope = (ind['sma3'][0] - ind['sma3'][-3]) / 4  # slope of slow SMA
             pos = self.getposition(d)
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
-
             # ---- Max hold exit ----
             if pos and ind['entry_bar']:  # entry bar
                 if (len(d) - ind['entry_bar']) >= self.p.max_hold_bars:
@@ -86,14 +63,14 @@ class SMACrossover(bt.SignalStrategy):
             # ---- Trailing stops ----
             if pos:
                 # Long position
-                if pos.size > 0 > ind['crossover_fm'] and sma_slow_slope < 0: # close if MAs cross downwards and slow SMA is negative
+                if pos.size > 0 and ind['crossover_fm'][0] < 0 and sma_slow_slope < 0: # close if MAs cross downwards and slow SMA is negative
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['last_trade_bar'] = len(d)
                     continue
 
                 # Short position
-                elif pos.size < 0 < ind['crossover_ms'] and ind['crossover_fm'] > 0: # close if MAs cross upwards and slow SMA is positive
+                elif pos.size < 0 and ind['crossover_fm'][0] > 0 and sma_slow_slope > 0: # close if MAs cross upwards and slow SMA is positive
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['last_trade_bar'] = len(d)
@@ -245,14 +222,6 @@ class AdaptiveMAC(bt.Strategy):
             slow_ma =  ind['slow_ma']
             atr = ind['atr'][0]
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
-
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
@@ -381,14 +350,6 @@ class MACD(bt.Strategy):
             crossover = ind['crossover'][0]
             macd_line = ind['macd'].macd
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
-
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
@@ -504,14 +465,6 @@ class RSI(bt.Strategy):
             pos = self.getposition(d)
             current_rsi = ind['rsi'][0]
             atr_val = ind['atr'][0]
-
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -643,14 +596,6 @@ class BollingerBands(bt.Strategy):
             middle = ind['middle'][0]
             lower = ind['lower'][0]
             atr_val = ind['atr'][0]
-
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -804,14 +749,6 @@ class VolOscDivergence(bt.Strategy):
             rsi = ind['rsi'][0]
             vol_osc = ind['vol_osc'][0]
 
-            # ---- Final day close
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
-
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
@@ -910,16 +847,15 @@ class VolOscDivergence(bt.Strategy):
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr
 
 strategies = {
-    1: SimpleSMA,
-    2: SMACrossover,
-    3: AdaptiveMAC,
-    4: MACD,
-    5: RSI,
-    6: BollingerBands,
-    7: VolOscDivergence,
+    1: SMACrossover,
+    2: AdaptiveMAC,
+    3: MACD,
+    4: RSI,
+    5: BollingerBands,
+    6: VolOscDivergence,
 }
 
-def runall(frames, strategy):
+def runall(sim, frames, strategy):
 
     # Create the 1st data
     for i, frame in enumerate(frames):
@@ -946,13 +882,13 @@ def runall(frames, strategy):
         # Plot if requested
         cerebro.plot(style='candlestick', numfigs=1)
 
-def runone(ticker, strategy):
+def runone(sim, ticker, frames, strategy):
 
     # Create a cerebro
     cerebro = bt.Cerebro()
 
     # Add data frames to cerebro as data feeds
-    frame = db.frames[db.tickers.index(ticker)]
+    frame = frames[db.tickers.index(ticker)]
     data_feed = bt.feeds.PandasData(dataname=frame)
     cerebro.adddata(data_feed, name=ticker)
 
