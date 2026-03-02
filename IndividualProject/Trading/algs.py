@@ -4,6 +4,8 @@ from __future__ import (absolute_import, division, print_function,
 from cmath import atan
 import numpy as np
 import backtrader as bt
+import backtrader.analyzers as btanalyzers
+
 from Database import db
 
 start_cash = 10000
@@ -706,8 +708,16 @@ class VolOscDivergence(bt.Strategy):
         stop_smooth=0.2
     )
 
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
+
     def __init__(self):
         self.inds = {}
+        self.buyprice = None
+        self.buycomm = None
+
         for i, d in enumerate(self.datas):
 
             returns = bt.ind.PctChange(d.close, period=1)
@@ -726,8 +736,53 @@ class VolOscDivergence(bt.Strategy):
                 rsi=rsi,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -748,6 +803,10 @@ class VolOscDivergence(bt.Strategy):
             sma = ind['sma'][0]
             rsi = ind['rsi'][0]
             vol_osc = ind['vol_osc'][0]
+
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -834,14 +893,26 @@ class VolOscDivergence(bt.Strategy):
             if not pos:
                 # Bullish divergence
                 if price_change < 0 < vol_osc_change and current_price > sma and rsi < 70:
-                    self.buy(data=d, size=size)
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr
 
                 # Bearish divergence
                 elif price_change > 0 > vol_osc_change and current_price < sma and rsi > 30:
-                    self.sell(data=d, size=size)
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr
@@ -870,19 +941,45 @@ def runall(sim, frames, strategy):
         # Add the strategy
         cerebro.addstrategy(strategies[strategy])
 
-        # Add cash
+        # Add cash and commission (0.1%)
         cerebro.broker.setcash(start_cash)
+        cerebro.broker.setcommission(commission=0.001)
 
         # And run it
-        print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
+        print(cerebro.broker.getvalue())
         cerebro.run()
-        print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
+        print(cerebro.broker.getvalue())
         cerebro.broker.setcash(start_cash)
 
         # Plot if requested
-        cerebro.plot(style='candlestick', numfigs=1)
+        # cerebro.plot(style='candlestick', numfigs=1)
 
 def runone(sim, ticker, frames, strategy):
+
+    # Create a cerebro
+    cerebro = bt.Cerebro()
+
+    # Add data frames to cerebro as data feeds
+    frame = frames[db.tickers.index(ticker)]
+    data_feed = bt.feeds.PandasData(dataname=frame)
+    cerebro.adddata(data_feed, name=ticker)
+
+    # Add the strategy
+    cerebro.addstrategy(strategies[strategy])
+
+    # Add cash and commission (0.1%)
+    cerebro.broker.setcash(start_cash)
+    cerebro.broker.setcommission(commission=0.001)
+
+    # And run it
+    print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
+    cerebro.run()
+    print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
+
+    # Plot if requested
+    # cerebro.plot(style='candlestick', numfigs=1)
+
+def runopt(sim, ticker, frames, strategy):
 
     # Create a cerebro
     cerebro = bt.Cerebro()
@@ -898,10 +995,12 @@ def runone(sim, ticker, frames, strategy):
     # Add cash
     cerebro.broker.setcash(start_cash)
 
+    # Add analyzers
+    cerebro.addanalyzer(btanalyzers.SharpeRatio, _name="sharpe")
+    cerebro.addanalyzer(btanalyzers.DrawDown, _name="drawdown")
+    cerebro.addanalyzer(btanalyzers.Returns, _name="returns")
+
     # And run it
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
     cerebro.run()
     print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
-
-    # Plot if requested
-    cerebro.plot(style='candlestick', numfigs=1)
