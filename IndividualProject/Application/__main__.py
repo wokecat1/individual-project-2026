@@ -8,12 +8,12 @@ class AppPrompt(Cmd):
 
     def do_start(self, args):
         """Simulation scenario and trading algorithm selector."""
-        print("Select simulation number between 1 and 10.")
+        print("Select simulation number between 1 and 6.")
         num = int(input('Enter simulation number: '))
-        if num in range (1, 16):
+        if num in range (1, 7):
             db.import_data(num)
         else:
-            print("Scenario not found, please select a number between 1 and 16")
+            print("Scenario not found, please select a number between 1 and 6")
             raise SystemError
 
         print(

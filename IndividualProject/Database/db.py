@@ -1,3 +1,4 @@
+import mysql
 import MySQLdb
 import pandas as pd
 
@@ -23,11 +24,7 @@ scenarios = {
     3: ("2024-07-29", "2025-01-28"),
     4: ("2024-01-29", "2024-07-28"),
     5: ("2023-07-29", "2024-01-28"),
-    6: ("2023-01-29", "2023-07-28"),
-    7: ("2022-07-29", "2023-01-28"),
-    8: ("2022-01-29", "2022-07-28"),
-    9: ("2021-07-29", "2022-01-28"),
-    10: ("2021-01-29", "2021-07-28"),
+    6: ("2023-01-29", "2023-07-28")
 }
 
 '''def export_data(ticker):
@@ -44,9 +41,9 @@ scenarios = {
         print(e)'''
 
 def import_data(v):
-    """Import stock data for a specific scenario from the database. Takes a value from 1-16 as input."""
+    """Import stock data for a specific scenario from the database. Takes a value from 1-6 as input."""
     frames = []
-    if v in range(1, 16):
+    if v in range(1, 7):
         try:
             engine = create_engine(conn_str)
             start_date, end_date = scenarios[v]
