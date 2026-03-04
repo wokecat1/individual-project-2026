@@ -14,9 +14,9 @@ class SMACrossover(bt.SignalStrategy):
 
     """Simpler trading strategy which uses the crossover of a slower and a faster SMA as an indicator"""
 
-    params = dict(
-        pfast=5,    # period for the fast moving average
-        pmid=15,    # period for the medium moving average
+    params = dict(  # params taken from maximum average of optimisation data
+        pfast=4,    # period for the fast moving average
+        pmid=20,    # period for the medium moving average
         pslow=30,   # period for the slow moving average
         max_hold_bars=30,
         min_gap_bars=1,
@@ -187,50 +187,6 @@ class AdaptiveSMA(bt.Indicator):
         self.vol = bt.ind.StdDev(bt.ind.PctChange(self.data), period=self.p.vol_period)  # Volatility = std dev of percentage price change
         self.vol_hist = []                                                       # Volatility history of stock
 
-    def notify_order(self, order):
-
-        d = order.data
-
-        if order.status in [order.Submitted, order.Accepted]:
-            return
-
-        if order.status == order.Completed:
-
-            if order.isbuy():
-                self.log(
-                    f'BUY EXEC, '
-                    f'Price: {order.executed.price:.2f}, '
-                    f'Cost: {order.executed.value:.2f}, '
-                    f'Comm: {order.executed.comm:.2f}, '
-                    f'bar={len(d)}',
-                    data=d
-                )
-
-            else:
-                self.log(
-                    f'BUY EXEC, '
-                    f'Price: {order.executed.price:.2f}, '
-                    f'Cost: {order.executed.value:.2f}, '
-                    f'Comm: {order.executed.comm:.2f}, '
-                    f'bar={len(d)}',
-                    data=d
-                )
-
-        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
-            self.log('ORDER FAILED', data=d)
-
-        self.inds[d]['order'] = None
-
-    def notify_trade(self, trade):
-        if not trade.isclosed:
-            return
-
-        self.log(
-            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
-            (trade.pnl, trade.pnlcomm),
-            data=trade.data
-        )
-
     def next(self):
 
         if len(self.data) < self.p.max_period:
@@ -271,11 +227,11 @@ class AdaptiveMAC(bt.Strategy):
 
     """Trading strategy using crossovers between moving averages whose windows flex depending on market volatility"""
 
-    params = dict(
-        fast_base=7,
-        slow_base=20,
-        min_period_fast=4,
-        max_period_fast=14,
+    params = dict( # params taken from maximum average of optimisation data
+        fast_base=5,
+        slow_base=14,
+        min_period_fast=5,
+        max_period_fast=25,
         min_period_slow=15,
         max_period_slow=40,
         vol_period=7,
@@ -313,7 +269,7 @@ class AdaptiveMAC(bt.Strategy):
                 min_period=self.p.min_period_slow,
                 max_period=self.p.max_period_slow
             )
-            crossover = bt.ind.CrossOver(fast_ma, slow_ma) # indicator to detect when fast_ma and slow_ma cross
+            crossover = bt.ind.CrossOver(slow_ma, fast_ma) # indicator to detect when fast_ma and slow_ma cross
             atr = bt.ind.ATR(d, period=14)
 
             self.inds[d] = dict(
@@ -482,10 +438,10 @@ class MACD(bt.Strategy):
 
     """Trading strategy using a Moving Average Convergence/Divergence indicator"""
 
-    params = dict(
-        fast_period=12,         # period for fast MA
-        slow_period=26,         # period for slow MA
-        sig_period=9,           # period for MACD signal
+    params = dict( # params taken from maximum average of optimisation data
+        fast_period=7,         # period for fast MA
+        slow_period=38,         # period for slow MA
+        sig_period=7,           # period for MACD signal
         atr_period=14,          # ATR period for stops
         atr_multiplier=2.0,     # ATR value scalar
         max_hold_bars=30,
@@ -669,10 +625,11 @@ class MACD(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
 
 class RSI(bt.Strategy):
-    """RSI strategy with smoothed ATR trailing stops and trend-strength sizing"""
 
-    params = dict(
-        period=14,          # RSI period
+    """RSI strategy with ATR trailing stops and trend-strength sizing"""
+
+    params = dict( # params taken from maximum average of optimisation data
+        period=16,          # RSI period
         overbought=70,      # overbought threshold
         oversold=35,        # oversold threshold
         atr_period=14,      # ATR period for trailing stop
@@ -863,10 +820,11 @@ class RSI(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
 
 class BollingerBands(bt.Strategy):
+
     """Bollinger Bands strategy with ATR trailing stops, volatility-adjusted sizing, and trend strength scaling"""
 
-    params = dict(
-        period=20,
+    params = dict( # params taken from maximum average of optimisation data
+        period=8,
         devfactor=2,
         atr_window=14,
         atr_multiplier=2,
@@ -1070,11 +1028,11 @@ class VolOscDivergence(bt.Strategy):
 
     """Volume Oscillator Divergence strategy with ATR trailing stops and volatility-adjusted sizing"""
 
-    params = dict(
-        vol_window=30,
-        vol_roc_period=7,
-        price_lookback=7,
-        sma_window=30,
+    params = dict( # params taken from maximum average of optimisation data
+        vol_window=15,
+        vol_roc_period=10,
+        price_lookback=5,
+        sma_window=14,
         atr_window=14,
         atr_multiplier=2,
         rsi_window=18,
@@ -1329,7 +1287,7 @@ def runall(sim, frames, strategy):
         cerebro.broker.setcash(start_cash)
 
         # Plot if requested
-        # cerebro.plot(style='candlestick', numfigs=1)
+        cerebro.plot(style='candlestick', numfigs=1)
 
 def runone(sim, ticker, frames, strategy):
 
@@ -1342,21 +1300,16 @@ def runone(sim, ticker, frames, strategy):
     cerebro.adddata(data_feed, name=ticker)
 
     # Add the strategy
-    cerebro.addstrategy(strategies[strategy])
+    # cerebro.addstrategy(strategies[strategy])
 
     # Add cash and commission (0.1%)
     cerebro.broker.setcash(start_cash)
     cerebro.broker.setcommission(commission=0.001)
 
-    # And run it
-    print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    cerebro.run(maxcpus=1)
-    print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
-
     # Add analyzers
-    '''cerebro.addanalyzer(btanalyzers.SharpeRatio, _name="sharpe")
+    cerebro.addanalyzer(btanalyzers.SharpeRatio, _name="sharpe")
     cerebro.addanalyzer(btanalyzers.DrawDown, _name="drawdown")
-    cerebro.addanalyzer(btanalyzers.Returns, _name="returns")'''
+    cerebro.addanalyzer(btanalyzers.Returns, _name="returns")
 
     # Optimise strategy
     '''cerebro.optstrategy(SMACrossover,
@@ -1388,9 +1341,15 @@ def runone(sim, ticker, frames, strategy):
                         vol_window=range(15, 36, 5),
                         vol_roc_period=range(3, 11),
                         price_lookback=range(5, 11),
-                        sma_window=range(14, 36, 7))
+                        sma_window=range(14, 36, 7))'''
 
-    par_list = [[x[0].params.vol_window,
+    # And run it
+    print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
+    cerebro.run(maxcpus=1)
+    print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
+
+    # Parse optimisation results
+    '''par_list = [[x[0].params.vol_window,
                  x[0].params.vol_roc_period,
                  x[0].params.price_lookback,
                  x[0].params.sma_window,
