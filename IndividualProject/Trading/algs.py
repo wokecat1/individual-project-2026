@@ -69,7 +69,7 @@ class SMACrossover(bt.SignalStrategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -304,7 +304,7 @@ class AdaptiveMAC(bt.Strategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -499,7 +499,7 @@ class MACD(bt.Strategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -683,7 +683,7 @@ class RSI(bt.Strategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -778,7 +778,7 @@ class RSI(bt.Strategy):
                 continue
 
             # ---- Position sizing ----
-            rsi_slope = (ind['rsi'][0] - ind['rsi'][-self.p.trend_smooth_period]) / self.p.trend_smooth_period
+            rsi_slope = (ind['rsi'][0] - ind['rsi'][-self.p.trend_smooth_period]) / ind['rsi'][0]
             trend_strength = min(1.0, abs(rsi_slope))   # Compute RSI slope for trend strength
             trend_factor = min(self.p.max_risk, max(self.p.min_risk, trend_strength))
 
@@ -826,6 +826,7 @@ class BollingerBands(bt.Strategy):
     params = dict( # params taken from maximum average of optimisation data
         period=8,
         devfactor=2,
+        mult_factor=0.1,
         atr_window=14,
         atr_multiplier=2,
         stop_smooth=0.2,
@@ -882,7 +883,7 @@ class BollingerBands(bt.Strategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -917,9 +918,14 @@ class BollingerBands(bt.Strategy):
             middle = ind['middle'][0]
             lower = ind['lower'][0]
             atr_val = ind['atr'][0]
+            bandwidth = (upper - lower) / middle
 
             # ---- Active order check ----
             if ind['order']:
+                continue
+
+            # ---- Trade only in high volatility ----
+            if bandwidth < 0.02:
                 continue
 
             # ---- Max hold exit ----
@@ -933,13 +939,13 @@ class BollingerBands(bt.Strategy):
 
             # ---- Position management ----
             if pos:
-                if pos.size > 0 and current_price < middle: # long position, price below middle band
+                if pos.size > 0 and current_price < ind['stop_price']: # long position, price below lower band
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['stop_price'] = None
                     ind['last_trade_bar'] = len(d)
                     continue
-                elif pos.size < 0 and current_price > middle: # short position, price above middle band
+                elif pos.size < 0 and current_price > ind['stop_price']: # short position, price above upper band
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['stop_price'] = None
@@ -948,7 +954,7 @@ class BollingerBands(bt.Strategy):
 
                 # ATR trailing stop
                 if pos.size > 0:
-                    new_stop = current_price - self.p.atr_multiplier * atr_val
+                    new_stop = current_price + atr_val * self.p.atr_multiplier
                     if ind['stop_price'] is None:
                         ind['stop_price'] = new_stop
                     else:
@@ -961,7 +967,7 @@ class BollingerBands(bt.Strategy):
                         continue
 
                 else:
-                    new_stop = current_price + self.p.atr_multiplier * atr_val
+                    new_stop = current_price - atr_val * self.p.atr_multiplier
                     if ind['stop_price'] is None:
                         ind['stop_price'] = new_stop
                     else:
@@ -979,7 +985,7 @@ class BollingerBands(bt.Strategy):
 
             # ---- Position sizing ----
             if upper != lower:
-                trend_strength = abs(current_price - middle) / (upper - lower)
+                trend_strength = 1 - abs((current_price - middle) / (upper - lower))
             else:
                 trend_strength = 0.5
             trend_strength = min(1.0, max(0.0, trend_strength))
@@ -1000,7 +1006,7 @@ class BollingerBands(bt.Strategy):
 
             # ---- Entry conditions ----
             if not pos:
-                if current_price > upper:
+                if d.close[-1] <= upper and current_price > upper: # current price too low
                     order = self.buy(data=d, size=size)
                     if order:
                         ind['order'] = order
@@ -1012,7 +1018,7 @@ class BollingerBands(bt.Strategy):
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
-                elif current_price < lower:
+                elif d.close[-1] >= lower and current_price < lower: # current price too high
                     order = self.sell(data=d, size=size)
                     if order:
                         ind['order'] = order
@@ -1096,7 +1102,7 @@ class VolOscDivergence(bt.Strategy):
 
             else:
                 self.log(
-                    f'BUY EXEC, '
+                    f'SELL EXEC, '
                     f'Price: {order.executed.price:.2f}, '
                     f'Cost: {order.executed.value:.2f}, '
                     f'Comm: {order.executed.comm:.2f}, '
@@ -1177,7 +1183,7 @@ class VolOscDivergence(bt.Strategy):
                     if ind['stop_price'] is None:
                         ind['stop_price'] = target_stop
                     else:
-                        # smoothing to reduce whipsaws
+                        # apply smoothing
                         ind['stop_price'] += self.p.stop_smooth * (target_stop - ind['stop_price'])
                     if current_price <= ind['stop_price']:
                         self.close(data=d)
