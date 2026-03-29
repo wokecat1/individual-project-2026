@@ -1,41 +1,33 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-from cmath import atan
 import numpy as np
 import backtrader as bt
+import backtrader.analyzers as btanalyzers
+import pandas as pd
+
 from Database import db
 
 start_cash = 10000
-
-class SimpleSMA(bt.SignalStrategy):
-    def __init__(self):
-        self.inds = {}
-        for i, d in enumerate(self.datas):
-            sma = bt.ind.MovingAverageSimple(d.close, period=15)
-            self.inds[d] = bt.ind.CrossOver(d.close, sma)
-
-    def next(self):
-        for i, d in enumerate(self.datas):
-            if self.inds[d] > 0.0:  # cross upwards
-                self.buy(data=d)
-
-            elif self.inds[d] < 0.0:
-                self.close(data=d)
 
 class SMACrossover(bt.SignalStrategy):
 
     """Simpler trading strategy which uses the crossover of a slower and a faster SMA as an indicator"""
 
-    params = dict(
-        pfast=5,    # period for the fast moving average
-        pmid=15,    # period for the medium moving average
+    params = dict(  # params taken from maximum average of optimisation data
+        pfast=4,    # period for the fast moving average
+        pmid=20,    # period for the medium moving average
         pslow=30,   # period for the slow moving average
         max_hold_bars=30,
         min_gap_bars=1,
         max_risk=0.8,
         min_risk=0.2
     )
+
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
 
     def __init__(self):
         self.inds = {}
@@ -52,8 +44,53 @@ class SMACrossover(bt.SignalStrategy):
                 'crossover_fm': crossover_fm,
                 'crossover_ms': crossover_ms,
                 'entry_bar': None,
-                'last_trade_bar': None
+                'last_trade_bar': None,
+                'order': None
             }
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for i, d in enumerate(self.datas):
@@ -67,13 +104,9 @@ class SMACrossover(bt.SignalStrategy):
             sma_slow_slope = (ind['sma3'][0] - ind['sma3'][-3]) / 4  # slope of slow SMA
             pos = self.getposition(d)
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar']:  # entry bar
@@ -86,14 +119,14 @@ class SMACrossover(bt.SignalStrategy):
             # ---- Trailing stops ----
             if pos:
                 # Long position
-                if pos.size > 0 > ind['crossover_fm'] and sma_slow_slope < 0: # close if MAs cross downwards and slow SMA is negative
+                if pos.size > 0 and ind['crossover_fm'][0] < 0 and sma_slow_slope < 0: # close if MAs cross downwards and slow SMA is negative
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['last_trade_bar'] = len(d)
                     continue
 
                 # Short position
-                elif pos.size < 0 < ind['crossover_ms'] and ind['crossover_fm'] > 0: # close if MAs cross upwards and slow SMA is positive
+                elif pos.size < 0 and ind['crossover_fm'][0] > 0 and sma_slow_slope > 0: # close if MAs cross upwards and slow SMA is positive
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['last_trade_bar'] = len(d)
@@ -113,14 +146,26 @@ class SMACrossover(bt.SignalStrategy):
                 if (ind['crossover_fm'] > 0 and sma_slow_slope > 0 or
                     ind['crossover_ms'] > 0 and sma_fast_slope > 0):  # if MAs cross to upside and slow SMA is positive
 
-                    self.buy(data=d, size=size)  # enter long
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
 
                 elif (ind['crossover_fm'] < 0 and sma_slow_slope < 0 or
                       ind['crossover_ms'] < 0 and sma_fast_slope < 0): # if MAs cross to downside and slow SMA is negative
 
-                    self.sell(data=d, size=size)  # enter short
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
 
@@ -182,11 +227,11 @@ class AdaptiveMAC(bt.Strategy):
 
     """Trading strategy using crossovers between moving averages whose windows flex depending on market volatility"""
 
-    params = dict(
-        fast_base=7,
-        slow_base=20,
-        min_period_fast=4,
-        max_period_fast=14,
+    params = dict( # params taken from maximum average of optimisation data
+        fast_base=5,
+        slow_base=14,
+        min_period_fast=5,
+        max_period_fast=25,
         min_period_slow=15,
         max_period_slow=40,
         vol_period=7,
@@ -199,6 +244,11 @@ class AdaptiveMAC(bt.Strategy):
         min_risk=0.2,
         trend_smooth_period=3
     )
+
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
 
     def __init__(self):
         self.inds = {}
@@ -219,7 +269,7 @@ class AdaptiveMAC(bt.Strategy):
                 min_period=self.p.min_period_slow,
                 max_period=self.p.max_period_slow
             )
-            crossover = bt.ind.CrossOver(fast_ma, slow_ma) # indicator to detect when fast_ma and slow_ma cross
+            crossover = bt.ind.CrossOver(slow_ma, fast_ma) # indicator to detect when fast_ma and slow_ma cross
             atr = bt.ind.ATR(d, period=14)
 
             self.inds[d] = dict(
@@ -229,8 +279,53 @@ class AdaptiveMAC(bt.Strategy):
                 atr=atr,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -245,13 +340,9 @@ class AdaptiveMAC(bt.Strategy):
             slow_ma =  ind['slow_ma']
             atr = ind['atr'][0]
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -320,13 +411,25 @@ class AdaptiveMAC(bt.Strategy):
             # ---- Entry conditions ----
             if not pos:
                 if crossover > 0:
-                    self.buy(data=d, size=size)
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr
 
                 elif crossover < 0:
-                    self.sell(data=d, size=size)
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr
@@ -335,10 +438,10 @@ class MACD(bt.Strategy):
 
     """Trading strategy using a Moving Average Convergence/Divergence indicator"""
 
-    params = dict(
-        fast_period=12,         # period for fast MA
-        slow_period=26,         # period for slow MA
-        sig_period=9,           # period for MACD signal
+    params = dict( # params taken from maximum average of optimisation data
+        fast_period=7,         # period for fast MA
+        slow_period=38,         # period for slow MA
+        sig_period=7,           # period for MACD signal
         atr_period=14,          # ATR period for stops
         atr_multiplier=2.0,     # ATR value scalar
         max_hold_bars=30,
@@ -347,6 +450,11 @@ class MACD(bt.Strategy):
         min_risk=0.2,
         trend_smooth_period=3,  # bars to compute slope for trend strength
     )
+
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
 
     def __init__(self):
         self.inds = {}
@@ -366,8 +474,53 @@ class MACD(bt.Strategy):
                 atr=atr,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -381,13 +534,9 @@ class MACD(bt.Strategy):
             crossover = ind['crossover'][0]
             macd_line = ind['macd'].macd
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -452,22 +601,35 @@ class MACD(bt.Strategy):
             # ---- Entry conditions ----
             if not pos:
                 if crossover > 0:  # MACD bullish crossover
-                    self.buy(data=d, size=size)
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
                 elif crossover < 0:  # MACD bearish crossover
-                    self.sell(data=d, size=size)
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
 class RSI(bt.Strategy):
-    """RSI strategy with smoothed ATR trailing stops and trend-strength sizing"""
 
-    params = dict(
-        period=14,          # RSI period
+    """RSI strategy with ATR trailing stops and trend-strength sizing"""
+
+    params = dict( # params taken from maximum average of optimisation data
+        period=16,          # RSI period
         overbought=70,      # overbought threshold
         oversold=35,        # oversold threshold
         atr_period=14,      # ATR period for trailing stop
@@ -480,6 +642,11 @@ class RSI(bt.Strategy):
         trend_smooth_period=3
     )
 
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
+
     def __init__(self):
         self.inds = {}
         for d in self.datas:
@@ -491,8 +658,53 @@ class RSI(bt.Strategy):
                 atr=atr,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -505,13 +717,9 @@ class RSI(bt.Strategy):
             current_rsi = ind['rsi'][0]
             atr_val = ind['atr'][0]
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -570,7 +778,7 @@ class RSI(bt.Strategy):
                 continue
 
             # ---- Position sizing ----
-            rsi_slope = (ind['rsi'][0] - ind['rsi'][-self.p.trend_smooth_period]) / self.p.trend_smooth_period
+            rsi_slope = (ind['rsi'][0] - ind['rsi'][-self.p.trend_smooth_period]) / ind['rsi'][0]
             trend_strength = min(1.0, abs(rsi_slope))   # Compute RSI slope for trend strength
             trend_factor = min(self.p.max_risk, max(self.p.min_risk, trend_strength))
 
@@ -588,23 +796,37 @@ class RSI(bt.Strategy):
             # ---- Entry conditions ----
             if not pos:
                 if current_rsi < self.p.oversold and rsi_slope > 0:  # RSI rising from oversold
-                    self.buy(data=d, size=size)
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
                 elif current_rsi > self.p.overbought and rsi_slope < 0:  # RSI falling from overbought
-                    self.sell(data=d, size=size)
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
 class BollingerBands(bt.Strategy):
+
     """Bollinger Bands strategy with ATR trailing stops, volatility-adjusted sizing, and trend strength scaling"""
 
-    params = dict(
-        period=20,
+    params = dict( # params taken from maximum average of optimisation data
+        period=8,
         devfactor=2,
+        mult_factor=0.1,
         atr_window=14,
         atr_multiplier=2,
         stop_smooth=0.2,
@@ -614,8 +836,16 @@ class BollingerBands(bt.Strategy):
         min_risk=0.2
     )
 
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
+
     def __init__(self):
         self.inds = {}
+        self.buyprice = None
+        self.buycomm = None
+
         for d in self.datas:
             bands = bt.ind.BollingerBands(d.close, period=self.p.period, devfactor=self.p.devfactor)
             atr = bt.ind.ATR(d, period=self.p.atr_window)
@@ -628,8 +858,53 @@ class BollingerBands(bt.Strategy):
                 atr=atr,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -643,14 +918,15 @@ class BollingerBands(bt.Strategy):
             middle = ind['middle'][0]
             lower = ind['lower'][0]
             atr_val = ind['atr'][0]
+            bandwidth = (upper - lower) / middle
 
-            # ---- Final day close ----
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
+
+            # ---- Trade only in high volatility ----
+            if bandwidth < 0.02:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -663,13 +939,13 @@ class BollingerBands(bt.Strategy):
 
             # ---- Position management ----
             if pos:
-                if pos.size > 0 and current_price < middle: # long position, price below middle band
+                if pos.size > 0 and current_price < ind['stop_price']: # long position, price below lower band
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['stop_price'] = None
                     ind['last_trade_bar'] = len(d)
                     continue
-                elif pos.size < 0 and current_price > middle: # short position, price above middle band
+                elif pos.size < 0 and current_price > ind['stop_price']: # short position, price above upper band
                     self.close(data=d)
                     ind['entry_bar'] = None
                     ind['stop_price'] = None
@@ -678,7 +954,7 @@ class BollingerBands(bt.Strategy):
 
                 # ATR trailing stop
                 if pos.size > 0:
-                    new_stop = current_price - self.p.atr_multiplier * atr_val
+                    new_stop = current_price + atr_val * self.p.atr_multiplier
                     if ind['stop_price'] is None:
                         ind['stop_price'] = new_stop
                     else:
@@ -691,7 +967,7 @@ class BollingerBands(bt.Strategy):
                         continue
 
                 else:
-                    new_stop = current_price + self.p.atr_multiplier * atr_val
+                    new_stop = current_price - atr_val * self.p.atr_multiplier
                     if ind['stop_price'] is None:
                         ind['stop_price'] = new_stop
                     else:
@@ -709,7 +985,7 @@ class BollingerBands(bt.Strategy):
 
             # ---- Position sizing ----
             if upper != lower:
-                trend_strength = abs(current_price - middle) / (upper - lower)
+                trend_strength = 1 - abs((current_price - middle) / (upper - lower))
             else:
                 trend_strength = 0.5
             trend_strength = min(1.0, max(0.0, trend_strength))
@@ -730,14 +1006,26 @@ class BollingerBands(bt.Strategy):
 
             # ---- Entry conditions ----
             if not pos:
-                if current_price > upper:
-                    self.buy(data=d, size=size)
+                if d.close[-1] <= upper and current_price > upper: # current price too low
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
 
-                elif current_price < lower:
-                    self.sell(data=d, size=size)
+                elif d.close[-1] >= lower and current_price < lower: # current price too high
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr_val
                     ind['last_trade_bar'] = len(d)
@@ -746,14 +1034,14 @@ class VolOscDivergence(bt.Strategy):
 
     """Volume Oscillator Divergence strategy with ATR trailing stops and volatility-adjusted sizing"""
 
-    params = dict(
-        vol_window=30,
-        vol_roc_period=7,
-        price_lookback=7,
-        sma_window=30,
+    params = dict( # params taken from maximum average of optimisation data
+        vol_window=15,
+        vol_roc_period=10,
+        price_lookback=5,
+        sma_window=14,
         atr_window=14,
         atr_multiplier=2,
-        rsi_window=14,
+        rsi_window=18,
         max_hold_bars=30,
         min_gap_bars=1,
         max_risk=0.8,
@@ -761,8 +1049,16 @@ class VolOscDivergence(bt.Strategy):
         stop_smooth=0.2
     )
 
+    def log(self, txt, dt=None, data=None):
+        data = data or self.datas[0]
+        dt = dt or data.datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
+
     def __init__(self):
         self.inds = {}
+        self.buyprice = None
+        self.buycomm = None
+
         for i, d in enumerate(self.datas):
 
             returns = bt.ind.PctChange(d.close, period=1)
@@ -781,8 +1077,53 @@ class VolOscDivergence(bt.Strategy):
                 rsi=rsi,
                 entry_bar=None,
                 last_trade_bar=None,
-                stop_price=None
+                stop_price=None,
+                order=None
             )
+
+    def notify_order(self, order):
+
+        d = order.data
+
+        if order.status in [order.Submitted, order.Accepted]:
+            return
+
+        if order.status == order.Completed:
+
+            if order.isbuy():
+                self.log(
+                    f'BUY EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+            else:
+                self.log(
+                    f'SELL EXEC, '
+                    f'Price: {order.executed.price:.2f}, '
+                    f'Cost: {order.executed.value:.2f}, '
+                    f'Comm: {order.executed.comm:.2f}, '
+                    f'bar={len(d)}',
+                    data=d
+                )
+
+        elif order.status in [order.Canceled, order.Margin, order.Rejected]:
+            self.log('ORDER FAILED', data=d)
+
+        self.inds[d]['order'] = None
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -804,13 +1145,9 @@ class VolOscDivergence(bt.Strategy):
             rsi = ind['rsi'][0]
             vol_osc = ind['vol_osc'][0]
 
-            # ---- Final day close
-            if pos.size != 0 and d._last:
-                self.close(data=d)
-                ind = self.inds[d]
-                ind['entry_bar'] = None
-                ind['stop_price'] = None
-                ind['last_trade_bar'] = len(d)
+            # ---- Active order check ----
+            if ind['order']:
+                continue
 
             # ---- Max hold exit ----
             if pos and ind['entry_bar'] is not None:
@@ -846,7 +1183,7 @@ class VolOscDivergence(bt.Strategy):
                     if ind['stop_price'] is None:
                         ind['stop_price'] = target_stop
                     else:
-                        # smoothing to reduce whipsaws
+                        # apply smoothing
                         ind['stop_price'] += self.p.stop_smooth * (target_stop - ind['stop_price'])
                     if current_price <= ind['stop_price']:
                         self.close(data=d)
@@ -897,29 +1234,40 @@ class VolOscDivergence(bt.Strategy):
             if not pos:
                 # Bullish divergence
                 if price_change < 0 < vol_osc_change and current_price > sma and rsi < 70:
-                    self.buy(data=d, size=size)
+                    order = self.buy(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'BUY CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr
 
                 # Bearish divergence
                 elif price_change > 0 > vol_osc_change and current_price < sma and rsi > 30:
-                    self.sell(data=d, size=size)
+                    order = self.sell(data=d, size=size)
+                    if order:
+                        ind['order'] = order
+                        self.log(
+                            f'SELL CREATE, {current_price:.2f}, bar={len(d)}',
+                            data=d
+                        )
                     ind['entry_bar'] = len(d)
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price + self.p.atr_multiplier * atr
 
 strategies = {
-    1: SimpleSMA,
-    2: SMACrossover,
-    3: AdaptiveMAC,
-    4: MACD,
-    5: RSI,
-    6: BollingerBands,
-    7: VolOscDivergence,
+    1: SMACrossover,
+    2: AdaptiveMAC,
+    3: MACD,
+    4: RSI,
+    5: BollingerBands,
+    6: VolOscDivergence,
 }
 
-def runall(frames, strategy):
+def runall(sim, frames, strategy):
 
     # Create the 1st data
     for i, frame in enumerate(frames):
@@ -934,38 +1282,90 @@ def runall(frames, strategy):
         # Add the strategy
         cerebro.addstrategy(strategies[strategy])
 
-        # Add cash
+        # Add cash and commission (0.1%)
         cerebro.broker.setcash(start_cash)
+        cerebro.broker.setcommission(commission=0.001)
 
         # And run it
-        print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
+        print(cerebro.broker.getvalue())
         cerebro.run()
-        print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
+        print(cerebro.broker.getvalue())
         cerebro.broker.setcash(start_cash)
 
         # Plot if requested
         cerebro.plot(style='candlestick', numfigs=1)
 
-def runone(ticker, strategy):
+def runone(sim, ticker, frames, strategy):
 
     # Create a cerebro
     cerebro = bt.Cerebro()
 
     # Add data frames to cerebro as data feeds
-    frame = db.frames[db.tickers.index(ticker)]
+    frame = frames[db.tickers.index(ticker)]
     data_feed = bt.feeds.PandasData(dataname=frame)
     cerebro.adddata(data_feed, name=ticker)
 
     # Add the strategy
-    cerebro.addstrategy(strategies[strategy])
+    # cerebro.addstrategy(strategies[strategy])
 
-    # Add cash
+    # Add cash and commission (0.1%)
     cerebro.broker.setcash(start_cash)
+    cerebro.broker.setcommission(commission=0.001)
+
+    # Add analyzers
+    cerebro.addanalyzer(btanalyzers.SharpeRatio, _name="sharpe")
+    cerebro.addanalyzer(btanalyzers.DrawDown, _name="drawdown")
+    cerebro.addanalyzer(btanalyzers.Returns, _name="returns")
+
+    # Optimise strategy
+    '''cerebro.optstrategy(SMACrossover,
+                        pfast=range(3, 8),
+                        pmid=range(10, 21),
+                        pslow=range(21, 41))
+
+    cerebro.optstrategy(AdaptiveMAC,
+                        fast_base=range(5, 16, 5),
+                        slow_base=range(14, 29, 7),
+                        min_period_fast=range(2, 6),
+                        max_period_fast=range(10, 21, 5),
+                        min_period_slow=range(10, 26, 5),
+                        max_period_slow=range(25, 46, 5))
+
+    cerebro.optstrategy(MACD,
+                        fast_period=range(7, 15),
+                        slow_period=range(21, 41),
+                        sig_period=range(7, 15))
+
+    cerebro.optstrategy(RSI,
+                        period=range(7, 29),
+                        overbought=range(55, 71, 5),
+                        oversold=range(30, 41, 5))
+
+     cerebro.optstrategy(BollingerBands, period=range(7, 29))
+
+    cerebro.optstrategy(VolOscDivergence,
+                        vol_window=range(15, 36, 5),
+                        vol_roc_period=range(3, 11),
+                        price_lookback=range(5, 11),
+                        sma_window=range(14, 36, 7))'''
 
     # And run it
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    cerebro.run()
+    cerebro.run(maxcpus=1)
     print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
 
+    # Parse optimisation results
+    '''par_list = [[x[0].params.vol_window,
+                 x[0].params.vol_roc_period,
+                 x[0].params.price_lookback,
+                 x[0].params.sma_window,
+                 x[0].analyzers.returns.get_analysis()['rnorm100'],
+                 x[0].analyzers.drawdown.get_analysis()['max']['drawdown'],
+                 x[0].analyzers.sharpe.get_analysis()['sharperatio']
+                 ] for x in back]
+
+    par_df = pd.DataFrame(par_list, columns = ['vol_window', 'vol_roc_period', 'price_lookback', 'sma_window', 'return', 'dd', 'sharpe'])
+    return par_df.to_csv("optVolOsc.csv", float_format="%.2f")'''
+
     # Plot if requested
-    cerebro.plot(style='candlestick', numfigs=1)
+    # cerebro.plot(style='candlestick', numfigs=1)

@@ -1,4 +1,4 @@
-import mysql.connector
+import mysql
 import MySQLdb
 import pandas as pd
 
@@ -14,26 +14,18 @@ conn_str = 'mysql+mysqlconnector://' + username + ':' + password + '@' + hostnam
 
 # List of tickers which have data stored in database
 tickers = ['AAOI', 'BTDR', 'ENR', 'IMAX', 'JACK',
-            'MAPS', 'NTGR', 'PLSE', 'SAFX', 'SCHL',
-            'STRL', 'SWX']
-
-pennytickers = ['TSE', 'TVGN', 'USAU', 'WDFC']
+            'MAPS', 'NTGR', 'PLSE', 'SCHL',
+            'STRL', 'SWX', 'TSE', 'TVGN', 'USAU', 'WDFC']
 
 # List of historical scenario start and end dates
-scenarios = [("2025-07-29", "2026-01-28"),
-             ("2025-01-29", "2025-07-28"),
-             ("2024-07-29", "2025-01-28"),
-             ("2024-01-29", "2024-07-28"),
-             ("2023-07-29", "2024-01-28"),
-             ("2023-01-29", "2023-07-28"),
-             ("2022-07-29", "2023-01-28"),
-             ("2022-01-29", "2022-07-28"),
-             ("2021-07-29", "2022-01-28"),
-             ("2021-01-29", "2021-07-28"),
-             ]
-
-# Array of ticker data frames for exporting
-frames = []
+scenarios = {
+    1: ("2025-07-29", "2026-01-28"),
+    2: ("2025-01-29", "2025-07-28"),
+    3: ("2024-07-29", "2025-01-28"),
+    4: ("2024-01-29", "2024-07-28"),
+    5: ("2023-07-29", "2024-01-28"),
+    6: ("2023-01-29", "2023-07-28")
+}
 
 '''def export_data(ticker):
     """Internal function: export ticker data to database for storage."""
@@ -49,11 +41,12 @@ frames = []
         print(e)'''
 
 def import_data(v):
-    """Import stock data for a specific scenario from the database. Takes a value from 1-16 as input."""
-    if v in range(1, 16):
+    """Import stock data for a specific scenario from the database. Takes a value from 1-6 as input."""
+    frames = []
+    if v in range(1, 7):
         try:
             engine = create_engine(conn_str)
-            start_date, end_date = scenarios[v - 1]
+            start_date, end_date = scenarios[v]
             with engine.connect() as conn:
                 for ticker in tickers:
                     # Query ticker data between start and end dates
@@ -65,7 +58,7 @@ def import_data(v):
                     df = df.set_index('Date')
                     frames.append(df)
                     if len(frames) == len(tickers):
-                        return SUCCESS
+                        return frames
 
         except MySQLdb.Error:
             print("Can't connect to database")
