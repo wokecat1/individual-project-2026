@@ -15,9 +15,9 @@ class SMACrossover(bt.SignalStrategy):
     """Simpler trading strategy which uses the crossover of a slower and a faster SMA as an indicator"""
 
     params = dict(  # params taken from maximum average of optimisation data
-        pfast=4,    # period for the fast moving average
-        pmid=20,    # period for the medium moving average
-        pslow=30,   # period for the slow moving average
+        pfast=6,    # period for the fast moving average
+        pmid=18,    # period for the medium moving average
+        pslow=31,   # period for the slow moving average
         max_hold_bars=30,
         min_gap_bars=1,
         max_risk=0.8,
@@ -229,7 +229,7 @@ class AdaptiveMAC(bt.Strategy):
 
     params = dict( # params taken from maximum average of optimisation data
         fast_base=5,
-        slow_base=14,
+        slow_base=21,
         min_period_fast=5,
         max_period_fast=25,
         min_period_slow=15,
@@ -439,9 +439,9 @@ class MACD(bt.Strategy):
     """Trading strategy using a Moving Average Convergence/Divergence indicator"""
 
     params = dict( # params taken from maximum average of optimisation data
-        fast_period=7,         # period for fast MA
-        slow_period=38,         # period for slow MA
-        sig_period=7,           # period for MACD signal
+        fast_period=12,         # period for fast MA
+        slow_period=40,         # period for slow MA
+        sig_period=13,           # period for MACD signal
         atr_period=14,          # ATR period for stops
         atr_multiplier=2.0,     # ATR value scalar
         max_hold_bars=30,
@@ -629,7 +629,7 @@ class RSI(bt.Strategy):
     """RSI strategy with ATR trailing stops and trend-strength sizing"""
 
     params = dict( # params taken from maximum average of optimisation data
-        period=16,          # RSI period
+        period=11,          # RSI period
         overbought=70,      # overbought threshold
         oversold=35,        # oversold threshold
         atr_period=14,      # ATR period for trailing stop
@@ -824,7 +824,7 @@ class BollingerBands(bt.Strategy):
     """Bollinger Bands strategy with ATR trailing stops, volatility-adjusted sizing, and trend strength scaling"""
 
     params = dict( # params taken from maximum average of optimisation data
-        period=8,
+        period=7,
         devfactor=2,
         mult_factor=0.1,
         atr_window=14,
@@ -1035,10 +1035,10 @@ class VolOscDivergence(bt.Strategy):
     """Volume Oscillator Divergence strategy with ATR trailing stops and volatility-adjusted sizing"""
 
     params = dict( # params taken from maximum average of optimisation data
-        vol_window=15,
-        vol_roc_period=10,
-        price_lookback=5,
-        sma_window=14,
+        vol_window=20,
+        vol_roc_period=9,
+        price_lookback=7,
+        sma_window=28,
         atr_window=14,
         atr_multiplier=2,
         rsi_window=18,
