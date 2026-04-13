@@ -7,6 +7,7 @@ import backtrader.analyzers as btanalyzers
 import pandas as pd
 
 from Database import db
+from Trading.new_alg import ProprietaryAlg
 
 start_cash = 10000
 
@@ -1265,6 +1266,7 @@ strategies = {
     4: RSI,
     5: BollingerBands,
     6: VolOscDivergence,
+    7: ProprietaryAlg,
 }
 
 def runall(sim, frames, strategy):
@@ -1318,6 +1320,14 @@ def runone(sim, ticker, frames, strategy):
     cerebro.addanalyzer(btanalyzers.Returns, _name="returns")
 
     # Optimise strategy
+    cerebro.optstrategy(ProprietaryAlg,
+                        vol_window=range(20, 36, 5),
+                        vol_roc_period=range(7, 12, 2),
+                        price_lookback=range(7, 12, 2),
+                        fast_period=range(7, 15, 3),
+                        slow_period=range(21, 41, 5),
+                        sig_period=range(7, 15, 2)
+                        )
     '''cerebro.optstrategy(SMACrossover,
                         pfast=range(3, 8),
                         pmid=range(10, 21),
@@ -1351,21 +1361,23 @@ def runone(sim, ticker, frames, strategy):
 
     # And run it
     print('Starting Portfolio Value: %.2f' % cerebro.broker.getvalue())
-    cerebro.run(maxcpus=1)
+    back = cerebro.run(maxcpus=1)
     print('Final Portfolio Value: %.2f' % cerebro.broker.getvalue())
 
     # Parse optimisation results
-    '''par_list = [[x[0].params.vol_window,
+    par_list = [[x[0].params.vol_window,
                  x[0].params.vol_roc_period,
                  x[0].params.price_lookback,
-                 x[0].params.sma_window,
+                 x[0].params.fast_period,
+                 x[0].params.slow_period,
+                 x[0].params.sig_period,
                  x[0].analyzers.returns.get_analysis()['rnorm100'],
                  x[0].analyzers.drawdown.get_analysis()['max']['drawdown'],
                  x[0].analyzers.sharpe.get_analysis()['sharperatio']
                  ] for x in back]
 
-    par_df = pd.DataFrame(par_list, columns = ['vol_window', 'vol_roc_period', 'price_lookback', 'sma_window', 'return', 'dd', 'sharpe'])
-    return par_df.to_csv("optVolOsc.csv", float_format="%.2f")'''
+    par_df = pd.DataFrame(par_list, columns = ['vol_window', 'vol_roc_period', 'price_lookback', 'macd_fast', 'macd_slow', 'macd_sig', 'return', 'dd', 'sharpe'])
+    return par_df.to_csv("optNew.csv", float_format="%.2f")
 
     # Plot if requested
     # cerebro.plot(style='candlestick', numfigs=1)

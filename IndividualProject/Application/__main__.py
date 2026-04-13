@@ -23,10 +23,11 @@ class AppPrompt(Cmd):
     3 - MACD
     4 - RSI
     5 - Bollinger Bands
-    6 - Volume Oscillator Divergence"""
+    6 - Volume Oscillator Divergence
+    7 - Proprietary Algorithm"""
                   )
         num2 = int(input('Enter algorithm number: '))
-        if num2 in range(1, 10):
+        if num2 in range(1, 8):
             print("Do you want to run the simulation on all stocks? (y/n)")
             com = input('Enter choice: ')
             if com == 'y':
