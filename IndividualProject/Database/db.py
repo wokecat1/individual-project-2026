@@ -1,5 +1,4 @@
 import mysql
-import MySQLdb
 import pandas as pd
 
 from sqlalchemy import create_engine, text
@@ -60,7 +59,7 @@ def import_data(v):
                     if len(frames) == len(tickers):
                         return frames
 
-        except MySQLdb.Error:
+        except Exception as e:
             print("Can't connect to database")
             return DB_READ_ERROR
     else:

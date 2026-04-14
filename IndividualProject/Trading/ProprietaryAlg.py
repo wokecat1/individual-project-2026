@@ -1,10 +1,7 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-import numpy as np
 import backtrader as bt
-import backtrader.analyzers as btanalyzers
-import pandas as pd
 
 class ProprietaryAlg(bt.Strategy):
 
@@ -73,13 +70,12 @@ class ProprietaryAlg(bt.Strategy):
             )
 
     def notify_order(self, order):
-
         d = order.data
-
         if order.status in [order.Submitted, order.Accepted]:
             return
 
         if order.status == order.Completed:
+
             if order.isbuy():
                 self.log(
                     f'BUY EXEC, '
@@ -109,13 +105,7 @@ class ProprietaryAlg(bt.Strategy):
         if not trade.isclosed:
             return
 
-        self.log(
-            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
-            (trade.pnl, trade.pnlcomm),
-            data=trade.data
-        )
-
-    def _calc_size(self, price, atr):
+    def calc_size(self, price, atr):
         value = self.broker.getvalue()
 
         pct_atr = atr / price if price else 0
@@ -219,7 +209,7 @@ class ProprietaryAlg(bt.Strategy):
                         pullback = rsi < 55 or price <= sma
 
                         if pullback:
-                            size = self._calc_size(price, atr)
+                            size = self.calc_size(price, atr)
                             ind['order'] = self.buy(data=d, size=size)
                             ind['regime'] = 'trend'
                             ind['entry_bar'] = len(d)
@@ -232,7 +222,7 @@ class ProprietaryAlg(bt.Strategy):
                         pullback = rsi > 45 or price >= sma
 
                         if pullback:
-                            ind['order'] = size = self._calc_size(price, atr)
+                            ind['order'] = size = self.calc_size(price, atr)
                             self.sell(data=d, size=size)
                             ind['regime'] = 'trend'
                             ind['entry_bar'] = len(d)
@@ -250,7 +240,7 @@ class ProprietaryAlg(bt.Strategy):
 
                     # Long reversal
                     if price_slope < 0 < vol_osc_slope and rsi < 65:
-                        size = self._calc_size(price, atr)
+                        size = self.calc_size(price, atr)
                         ind['order'] = self.buy(data=d, size=size)
                         ind['regime'] = 'chop'
                         ind['entry_bar'] = len(d)
@@ -260,7 +250,7 @@ class ProprietaryAlg(bt.Strategy):
 
                     # Short reversal
                     if price_slope > 0 > vol_osc_slope and rsi > 35:
-                        size = self._calc_size(price, atr)
+                        size = self.calc_size(price, atr)
                         ind['order'] = self.sell(data=d, size=size)
                         ind['regime'] = 'chop'
                         ind['entry_bar'] = len(d)
