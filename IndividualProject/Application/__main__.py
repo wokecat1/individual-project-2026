@@ -65,4 +65,5 @@ if __name__ == "__main__":
     prompt = AppPrompt()
     prompt.prompt = '->'
     prompt.cmdloop('Ready!\n'
-                   'List of stocks: ' + re.sub(r'[\'\[\]]', '', str(tickers)))
+                   'List of stocks: ' + re.sub(r'[\'\[\]]', '', str(tickers)) + '\n'
+                    'Type "help" for more information.')
