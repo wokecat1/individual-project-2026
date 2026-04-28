@@ -1,5 +1,15 @@
+
+"""This module contains various parameters and error codes used for
+general execution of the Command Line Interface.
+
+Last edited: 28 April 2026
+"""
+
 __app_name__ = "Algorithmic Stock Trading Simulator"
-__version__ = "1.0"
+__version__ = "1.11.4"
+__date__ = "28 April 2026"
+__vnote__ = "Completed proprietary algorithm functionality, several bugfixes"
+__author__ = "Candidate 627075"
 
 (
     SUCCESS,

@@ -1,3 +1,8 @@
+
+"""This module comprises a Moving Average Crossover-based trading strategy, with custom
+functionality to adaptively reside the moving average window depending on market conditions.
+"""
+
 import backtrader as bt
 import numpy as np
 
@@ -15,12 +20,12 @@ class AdaptiveSMA(bt.Indicator):
     )
 
     def __init__(self):
-
-        self.vol = bt.ind.StdDev(bt.ind.PctChange(self.data), period=self.p.vol_period)  # Volatility = std dev of percentage price change
-        self.vol_hist = []                                                       # Volatility history of stock
+        # Volatility = std dev of percentage price change
+        self.vol = bt.ind.StdDev(bt.ind.PctChange(self.data), period=self.p.vol_period)
+        self.vol_hist = [] # Volatility history of stock
 
     def next(self):
-
+        # If not all indicators initialised, do nothing
         if len(self.data) < self.p.max_period:
             self.lines.sma[0] = self.data[0]
             return
@@ -59,24 +64,25 @@ class AdaptiveMAC(bt.Strategy):
 
     """Trading strategy using crossovers between moving averages whose windows flex depending on market volatility"""
 
-    params = dict( # params taken from maximum average of optimisation data
-        fast_base=5,
-        slow_base=21,
+    params = dict(              # params taken from maximum average of optimisation data
+        fast_base=5,            # base fast MA value
+        slow_base=21,           # base slow MA value
         min_period_fast=5,
-        max_period_fast=25,
+        max_period_fast=25,     # bounds for fast MA
         min_period_slow=15,
-        max_period_slow=40,
-        vol_period=7,
-        vol_factor=1.5,
-        atr_window=14,
-        atr_multiplier=2,
-        max_hold_bars=30,
-        min_gap_bars=1,
-        max_risk=0.8,
-        min_risk=0.2,
-        trend_smooth_period=3
+        max_period_slow=40,     # bounds for slow MA
+        vol_period=7,           # volatility lookback period
+        vol_factor=1.5,         # volatility weighting modifier in calculations
+        atr_window=14,          # ATR window for trailing stops
+        atr_multiplier=2,       # modifier for trailing stop aggressiveness
+        max_hold_bars=30,       # max time a trade can be held
+        min_gap_bars=1,         # min time between trades
+        max_risk=0.8,           # max capital to risk
+        min_risk=0.2,           # min capital to risk
+        trend_smooth_period=3   # bars to compute slope for trend strength
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -85,6 +91,7 @@ class AdaptiveMAC(bt.Strategy):
     def __init__(self):
         self.inds = {}
         for d in self.datas:
+            # Fast adaptive moving average
             fast_ma = AdaptiveSMA(
                 d,
                 base_period=self.p.fast_base,
@@ -93,6 +100,7 @@ class AdaptiveMAC(bt.Strategy):
                 min_period=self.p.min_period_fast,
                 max_period=self.p.max_period_fast
             )
+            # Slow adaptive moving average
             slow_ma = AdaptiveSMA(
                 d,
                 base_period=self.p.slow_base,
@@ -115,6 +123,7 @@ class AdaptiveMAC(bt.Strategy):
                 order=None
             )
 
+    # Function to log order status and important values
     def notify_order(self, order):
         d = order.data
         if order.status in [order.Submitted, order.Accepted]:
@@ -147,9 +156,16 @@ class AdaptiveMAC(bt.Strategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -164,11 +180,11 @@ class AdaptiveMAC(bt.Strategy):
             slow_ma =  ind['slow_ma']
             atr = ind['atr'][0]
 
-            # ---- Active order check ----
+            # Active order check
             if ind['order']:
                 continue
 
-            # ---- Max hold exit ----
+            # Max hold exit
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
                     self.close(data=d)
@@ -177,9 +193,9 @@ class AdaptiveMAC(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Position management ----
+            # Position management
             if pos:
-
+                # Update trailing stops and check stock performance to decide whether to exit
                 # Opposite crossover check
                 if (pos.size > 0 and crossover < 0) or \
                         (pos.size < 0 and crossover > 0):
@@ -209,12 +225,12 @@ class AdaptiveMAC(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Trade minimum gap control ----
+            # Trade minimum gap control
             if ind['last_trade_bar'] is not None and \
                     len(d) - ind['last_trade_bar'] < self.p.min_gap_bars:
                 continue
 
-            # ---- Trade sizing based on angle between MA slopes ----
+            # Trade sizing based on angle between MA slopes
             fast_ma_slope = (fast_ma[0] - fast_ma[-self.p.trend_smooth_period]) / (self.p.trend_smooth_period + 1)
             slow_ma_slope = (slow_ma[0] - slow_ma[-self.p.trend_smooth_period]) / (self.p.trend_smooth_period + 1)
             sma_angle = abs(
@@ -232,8 +248,9 @@ class AdaptiveMAC(bt.Strategy):
             if size <= 0:
                 continue
 
-            # ---- Entry conditions ----
+            # Entry conditions
             if not pos:
+                # Buy if fast crosses from below to above slow (uptrend)
                 if crossover > 0:
                     order = self.buy(data=d, size=size)
                     if order:
@@ -246,6 +263,7 @@ class AdaptiveMAC(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     ind['stop_price'] = current_price - self.p.atr_multiplier * atr
 
+                # Sell if fast crosses from above to below slow (downtrend)
                 elif crossover < 0:
                     order = self.sell(data=d, size=size)
                     if order:

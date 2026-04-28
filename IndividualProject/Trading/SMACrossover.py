@@ -8,16 +8,17 @@ class SMACrossover(bt.SignalStrategy):
 
     """Simpler trading strategy which uses the crossover of a slower and a faster SMA as an indicator"""
 
-    params = dict(  # params taken from maximum average of optimisation data
-        pfast=6,    # period for the fast moving average
-        pmid=18,    # period for the medium moving average
-        pslow=31,   # period for the slow moving average
-        max_hold_bars=30,
-        min_gap_bars=1,
-        max_risk=0.8,
-        min_risk=0.2
+    params = dict(          # params taken from maximum average of optimisation data
+        pfast=6,            # period for the fast moving average
+        pmid=18,            # period for the medium moving average
+        pslow=31,           # period for the slow moving average
+        max_hold_bars=30,   # max time a trade can be held
+        min_gap_bars=1,     # min time between trades
+        max_risk=0.8,       # max capital to risk
+        min_risk=0.2,       # min capital to risk
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -42,6 +43,7 @@ class SMACrossover(bt.SignalStrategy):
                 'order': None
             }
 
+    # Function to log order status and important values
     def notify_order(self, order):
 
         d = order.data
@@ -76,9 +78,16 @@ class SMACrossover(bt.SignalStrategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
         self.log(
             'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
@@ -98,11 +107,11 @@ class SMACrossover(bt.SignalStrategy):
             sma_slow_slope = (ind['sma3'][0] - ind['sma3'][-3]) / 4  # slope of slow SMA
             pos = self.getposition(d)
 
-            # ---- Active order check ----
+            # Active order check
             if ind['order']:
                 continue
 
-            # ---- Max hold exit ----
+            # Max hold exit
             if pos and ind['entry_bar']:  # entry bar
                 if (len(d) - ind['entry_bar']) >= self.p.max_hold_bars:
                     self.close(data=d)
@@ -110,8 +119,9 @@ class SMACrossover(bt.SignalStrategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Trailing stops ----
+            # Trailing stops
             if pos:
+                # Decide whether to exit trade
                 # Long position
                 if pos.size > 0 and ind['crossover_fm'][0] < 0 and sma_slow_slope < 0: # close if MAs cross downwards and slow SMA is negative
                     self.close(data=d)
@@ -126,7 +136,7 @@ class SMACrossover(bt.SignalStrategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Position sizing ----
+            # Position sizing
             sma_angle = abs((sma_slow_slope - sma_fast_slope) / (1 + sma_slow_slope * sma_fast_slope))  # angle between slopes
             trend_strength = np.arctan(sma_angle) / (np.pi / 2)                                         # 0 when slopes are parallel, 1 when perpendicular
             size_factor = min(self.p.max_risk, max(self.p.min_risk, trend_strength))                      # trend strength clipped between 0.2 and 0.8
@@ -135,7 +145,7 @@ class SMACrossover(bt.SignalStrategy):
             if size <= 0:
                 continue
 
-            # ---- Entry conditions ----
+            # Entry conditions
             if not pos:
                 if (ind['crossover_fm'] > 0 and sma_slow_slope > 0 or
                     ind['crossover_ms'] > 0 and sma_fast_slope > 0):  # if MAs cross to upside and slow SMA is positive

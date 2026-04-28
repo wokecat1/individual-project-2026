@@ -1,5 +1,24 @@
-import mysql
+
+"""This module provides connection to the MySQL database used to store stock data for use
+by the program. The database is hosted on University of Sussex servers via HeidiSQL.
+"""
+
 import pandas as pd
+
+# List of tickers which have data stored in database
+__tickers__ = ['AAOI', 'BTDR', 'ENR', 'IMAX', 'JACK',
+            'MAPS', 'NTGR', 'PLSE', 'SCHL',
+            'STRL', 'SWX', 'TSE', 'TVGN', 'USAU', 'WDFC']
+
+# List of historical scenario start and end dates
+__scenarios__ = {
+    1: ("2025-07-29", "2026-01-28"),
+    2: ("2025-01-29", "2025-07-28"),
+    3: ("2024-07-29", "2025-01-28"),
+    4: ("2024-01-29", "2024-07-28"),
+    5: ("2023-07-29", "2024-01-28"),
+    6: ("2023-01-29", "2023-07-28")
+}
 
 from sqlalchemy import create_engine, text
 from Application import SUCCESS, DB_READ_ERROR, DB_WRITE_ERROR, INPUT_ERROR
@@ -11,20 +30,6 @@ password = 'Mysql_627075'
 database = 'kg412'
 conn_str = 'mysql+mysqlconnector://' + username + ':' + password + '@' + hostname + '/' + database
 
-# List of tickers which have data stored in database
-tickers = ['AAOI', 'BTDR', 'ENR', 'IMAX', 'JACK',
-            'MAPS', 'NTGR', 'PLSE', 'SCHL',
-            'STRL', 'SWX', 'TSE', 'TVGN', 'USAU', 'WDFC']
-
-# List of historical scenario start and end dates
-scenarios = {
-    1: ("2025-07-29", "2026-01-28"),
-    2: ("2025-01-29", "2025-07-28"),
-    3: ("2024-07-29", "2025-01-28"),
-    4: ("2024-01-29", "2024-07-28"),
-    5: ("2023-07-29", "2024-01-28"),
-    6: ("2023-01-29", "2023-07-28")
-}
 
 '''def export_data(ticker):
     """Internal function: export ticker data to database for storage."""
@@ -45,9 +50,9 @@ def import_data(v):
     if v in range(1, 7):
         try:
             engine = create_engine(conn_str)
-            start_date, end_date = scenarios[v]
+            start_date, end_date = __scenarios__[v] # scenario data stored as start and end date for stock data
             with engine.connect() as conn:
-                for ticker in tickers:
+                for ticker in __tickers__:
                     # Query ticker data between start and end dates
                     query = text(f"SELECT * FROM {ticker} WHERE Date BETWEEN :start AND :end ORDER BY Date")
 
@@ -56,7 +61,7 @@ def import_data(v):
                     df['Date'] = pd.to_datetime(df['Date'])
                     df = df.set_index('Date')
                     frames.append(df)
-                    if len(frames) == len(tickers):
+                    if len(frames) == len(__tickers__):
                         return frames
 
         except Exception as e:

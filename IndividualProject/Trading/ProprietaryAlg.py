@@ -7,7 +7,7 @@ class ProprietaryAlg(bt.Strategy):
 
     """Volume Oscillator Divergence-based strategy with secondary MACD indicators, ATR trailing stops and volatility-adjusted sizing"""
 
-    params = dict( # params taken from maximum average of optimisation data
+    params = dict(          # params taken from maximum average of optimisation data
         vol_window=30,      # volatility lookback period
         vol_roc_period=7,   # volatility rate of change period
         price_lookback=7,   # price lookback period
@@ -15,15 +15,16 @@ class ProprietaryAlg(bt.Strategy):
         fast_period=12,     # period for fast MA
         slow_period=26,     # period for slow MA
         sig_period=9,       # period for MACD signal
-        atr_window=14,
-        atr_multiplier=2,
-        rsi_window=18,
-        min_gap_bars=1,
-        max_risk=0.5,
-        min_risk=0.2,
+        atr_window=14,      # ATR window for trailing stops
+        atr_multiplier=2,   # modifier for trailing stop aggressiveness
+        rsi_window=18,      # RSI window
+        min_gap_bars=1,     # min time between trades
+        max_risk=0.5,       # max capital to risk
+        min_risk=0.2,       # min capital to risk
         stop_smooth=0.2,
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -69,6 +70,7 @@ class ProprietaryAlg(bt.Strategy):
                 extreme_price=None
             )
 
+    # Function to log order status and important values
     def notify_order(self, order):
         d = order.data
         if order.status in [order.Submitted, order.Accepted]:
@@ -101,10 +103,18 @@ class ProprietaryAlg(bt.Strategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
 
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
+
+    # Function to calculate trade size
     def calc_size(self, price, atr):
         value = self.broker.getvalue()
 
@@ -139,20 +149,20 @@ class ProprietaryAlg(bt.Strategy):
             price_slope = (price - d.close[-self.p.price_lookback]) / d.close[-self.p.price_lookback]
 
             # --- Trend mode classification ---
-            trending = abs(price_slope) > 0.05 and pct_atr > 0.015  # detect more consistent trends
+            mean_reversion = abs(price_slope) > 0.05 and pct_atr > 0.015  # detect more consistent trends
             reversal = abs(price_slope) < 0.02 and pct_atr < 0.02   # detect reversals
 
             if ind['entry_bar'] == len(d):
                 continue
 
-            # --- Position management ---
+            # Position management
             if pos:
-                if trending:
+                # Adjust trailing stop aggressiveness for stock volatility
+                if mean_reversion:
                     mult = 2.0
                 else:
                     mult = 1.5
 
-                # ---- Position management ----
                 # Long position trailing stop
                 if pos.size > 0:
                     # Track highest price since entry
@@ -200,10 +210,10 @@ class ProprietaryAlg(bt.Strategy):
                         self.close(data=d)
                         continue
 
-            # --- Entry logic ---
+            # Entry logic
             if not pos:
-                # Trending "mode"
-                if trending:
+                # Mean reversion "mode"
+                if mean_reversion:
                     # Long trend
                     if price > sma and macd > signal and hist > 0:
                         pullback = rsi < 55 or price <= sma
@@ -230,7 +240,7 @@ class ProprietaryAlg(bt.Strategy):
                             ind['extreme_price'] = price
                             continue
 
-                # Mean reversion "mode"
+                # Reversal "mode"
                 elif reversal:
 
                     vol_osc = ind['vol_osc'][0]

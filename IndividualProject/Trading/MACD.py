@@ -4,19 +4,20 @@ class MACD(bt.Strategy):
 
     """Trading strategy using a Moving Average Convergence/Divergence indicator"""
 
-    params = dict( # params taken from maximum average of optimisation data
+    params = dict(              # params taken from maximum average of optimisation data
         fast_period=12,         # period for fast MA
         slow_period=40,         # period for slow MA
-        sig_period=13,           # period for MACD signal
+        sig_period=13,          # period for MACD signal
         atr_period=14,          # ATR period for stops
         atr_multiplier=2.0,     # ATR value scalar
-        max_hold_bars=30,
-        min_gap_bars=1,
-        max_risk=0.8,
-        min_risk=0.2,
+        max_hold_bars=30,       # max time a trade can be held
+        min_gap_bars=1,         # min time between trades
+        max_risk=0.8,           # max capital to risk
+        min_risk=0.2,           # min capital to risk
         trend_smooth_period=3,  # bars to compute slope for trend strength
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -44,6 +45,7 @@ class MACD(bt.Strategy):
                 order=None
             )
 
+    # Function to log order status and important values
     def notify_order(self, order):
         d = order.data
         if order.status in [order.Submitted, order.Accepted]:
@@ -76,9 +78,16 @@ class MACD(bt.Strategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:

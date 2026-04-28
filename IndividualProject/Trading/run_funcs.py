@@ -36,7 +36,7 @@ def run_all(sim, frames, strategy):
         cerebro = bt.Cerebro()
 
         # Add data frames to cerebro as data feeds
-        ticker_name = str(db.tickers[i]) if i < len(db.tickers) else f"Ticker_{i}"
+        ticker_name = str(db.__tickers__[i]) if i < len(db.__tickers__) else f"Ticker_{i}"
         data_feed = bt.feeds.PandasData(dataname=frame)
         cerebro.adddata(data_feed, name=ticker_name)
 
@@ -64,7 +64,7 @@ def run_one(sim, ticker, frames, strategy):
     cerebro = bt.Cerebro()
 
     # Add data frames to cerebro as data feeds
-    frame = frames[db.tickers.index(ticker)]
+    frame = frames[db.__tickers__.index(ticker)]
     data_feed = bt.feeds.PandasData(dataname=frame)
     cerebro.adddata(data_feed, name=ticker)
 
@@ -97,7 +97,7 @@ def run_opt(sim, ticker, frames, strategy):
     cerebro = bt.Cerebro()
 
     # Add data frames to cerebro as data feeds
-    frame = frames[db.tickers.index(ticker)]
+    frame = frames[db.__tickers__.index(ticker)]
     data_feed = bt.feeds.PandasData(dataname=frame)
     cerebro.adddata(data_feed, name=ticker)
 

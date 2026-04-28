@@ -4,21 +4,22 @@ class VolOscDivergence(bt.Strategy):
 
     """Volume Oscillator Divergence strategy with ATR trailing stops and volatility-adjusted sizing"""
 
-    params = dict( # params taken from maximum average of optimisation data
-        vol_window=20,
-        vol_roc_period=9,
-        price_lookback=7,
-        sma_window=28,
-        atr_window=14,
-        atr_multiplier=2,
-        rsi_window=18,
-        max_hold_bars=30,
-        min_gap_bars=1,
-        max_risk=0.8,
-        min_risk=0.2,
+    params = dict(          # params taken from maximum average of optimisation data
+        vol_window=20,      # volatility calculation period
+        vol_roc_period=9,   # momentum calculation period
+        price_lookback=7,   # price lookback period
+        sma_window=28,      # SMA window
+        atr_window=14,      # ATR window for trailing stops
+        atr_multiplier=2,   # modifier for trailing stop aggressiveness
+        rsi_window=18,      # RSI window
+        max_hold_bars=30,   # max time a trade can be held
+        min_gap_bars=1,     # min time between trades
+        max_risk=0.8,       # max capital to risk
+        min_risk=0.2,       # min capital to risk
         stop_smooth=0.2
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -51,6 +52,7 @@ class VolOscDivergence(bt.Strategy):
                 order=None
             )
 
+    # Function to log order status and important values
     def notify_order(self, order):
         d = order.data
         if order.status in [order.Submitted, order.Accepted]:
@@ -83,9 +85,16 @@ class VolOscDivergence(bt.Strategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -107,11 +116,11 @@ class VolOscDivergence(bt.Strategy):
             rsi = ind['rsi'][0]
             vol_osc = ind['vol_osc'][0]
 
-            # ---- Active order check ----
+            # Active order check
             if ind['order']:
                 continue
 
-            # ---- Max hold exit ----
+            # Max hold exit
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
                     self.close(data=d)
@@ -120,8 +129,9 @@ class VolOscDivergence(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Position management ----
+            # Position management
             if pos:
+                # Update trailing stops and check stock performance to decide whether to exit
                 if ind['stop_price'] is not None:
                     # Long positions: exit if price falls below stop (current_price - (3 * ATR))
                     if pos.size > 0 and current_price <= ind['stop_price']:
@@ -167,11 +177,11 @@ class VolOscDivergence(bt.Strategy):
                         ind['last_trade_bar'] = len(d)
                         continue
 
-            # ---- Minimum gap control ----
+            # Minimum trade gap control
             if ind['last_trade_bar'] is not None and (len(d) - ind['last_trade_bar']) < self.p.min_gap_bars:
                 continue
 
-            # ---- Trend & volatility adjusted sizing ----
+            # Trend and volatility adjusted sizing
             price_change = current_price - d.close[-self.p.price_lookback]
             vol_osc_change = vol_osc - ind['vol_osc'][-self.p.price_lookback]
 
@@ -192,7 +202,7 @@ class VolOscDivergence(bt.Strategy):
             if size <= 0:
                 continue
 
-            # ---- Entry signals ----
+            # Entry signals
             if not pos:
                 # Bullish divergence
                 if price_change < 0 < vol_osc_change and current_price > sma and rsi < 70:

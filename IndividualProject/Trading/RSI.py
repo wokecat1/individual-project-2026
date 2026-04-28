@@ -4,20 +4,21 @@ class RSI(bt.Strategy):
 
     """RSI strategy with ATR trailing stops and trend-strength sizing"""
 
-    params = dict( # params taken from maximum average of optimisation data
+    params = dict(          # params taken from maximum average of optimisation data
         period=11,          # RSI period
         overbought=70,      # overbought threshold
         oversold=35,        # oversold threshold
         atr_period=14,      # ATR period for trailing stop
         atr_multiplier=1.5, # ATR multiplier for trailing stop
         stop_smooth=0.2,    # smoothing factor for ATR trailing stop
-        max_hold_bars=30,
-        min_gap_bars=1,
-        max_risk=0.8,
-        min_risk=0.2,
-        trend_smooth_period=3
+        max_hold_bars=30,   # max time a trade can be held
+        min_gap_bars=1,     # min time between trades
+        max_risk=0.8,       # max capital to risk
+        min_risk=0.2,       # min capital to risk
+        trend_smooth_period=3 # bars to compute slope for trend strength
     )
 
+    # Function to log information to debug console
     def log(self, txt, dt=None, data=None):
         data = data or self.datas[0]
         dt = dt or data.datetime.date(0)
@@ -38,6 +39,7 @@ class RSI(bt.Strategy):
                 order=None
             )
 
+    # Function to log order status and important values
     def notify_order(self, order):
         d = order.data
         if order.status in [order.Submitted, order.Accepted]:
@@ -70,9 +72,16 @@ class RSI(bt.Strategy):
 
         self.inds[d]['order'] = None
 
+    # Function to log trade gross after trade is completed (closed)
     def notify_trade(self, trade):
         if not trade.isclosed:
             return
+
+        self.log(
+            'OPERATION PROFIT, GROSS %.2f, NET %.2f' %
+            (trade.pnl, trade.pnlcomm),
+            data=trade.data
+        )
 
     def next(self):
         for d in self.datas:
@@ -85,11 +94,11 @@ class RSI(bt.Strategy):
             current_rsi = ind['rsi'][0]
             atr_val = ind['atr'][0]
 
-            # ---- Active order check ----
+            # Active order check
             if ind['order']:
                 continue
 
-            # ---- Max hold exit ----
+            # Max hold exit
             if pos and ind['entry_bar'] is not None:
                 if len(d) - ind['entry_bar'] >= self.p.max_hold_bars:
                     self.close(data=d)
@@ -98,8 +107,9 @@ class RSI(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- Opposite extreme dominates exit ----
+            # Position management
             if pos:
+                # Check for opposite extreme
                 if (pos.size > 0 and current_rsi > self.p.overbought) or \
                    (pos.size < 0 and current_rsi < self.p.oversold):
                     self.close(data=d)
@@ -108,7 +118,7 @@ class RSI(bt.Strategy):
                     ind['last_trade_bar'] = len(d)
                     continue
 
-            # ---- ATR trailing stop ----
+            # ATR trailing stop
                 # Long position
                 if pos.size > 0:
                     target_stop = current_price - self.p.atr_multiplier * atr_val
@@ -141,11 +151,11 @@ class RSI(bt.Strategy):
                         ind['last_trade_bar'] = len(d)
                         continue
 
-            # ---- Minimum trade gap control ----
+            # Minimum trade gap control
             if ind['last_trade_bar'] is not None and len(d) - ind['last_trade_bar'] < self.p.min_gap_bars:
                 continue
 
-            # ---- Position sizing ----
+            # Position sizing
             rsi_slope = (ind['rsi'][0] - ind['rsi'][-self.p.trend_smooth_period]) / ind['rsi'][0]
             trend_strength = min(1.0, abs(rsi_slope))   # Compute RSI slope for trend strength
             trend_factor = min(self.p.max_risk, max(self.p.min_risk, trend_strength))
@@ -161,7 +171,7 @@ class RSI(bt.Strategy):
             if size <= 0:
                 continue
 
-            # ---- Entry conditions ----
+            # Entry conditions
             if not pos:
                 if current_rsi < self.p.oversold and rsi_slope > 0:  # RSI rising from oversold
                     order = self.buy(data=d, size=size)
